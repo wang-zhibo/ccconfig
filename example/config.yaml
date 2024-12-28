@@ -1,0 +1,5 @@
+server:
+  debug: false  # 会覆盖 ini 里的 debug = yes
+database:
+  password: secret
+
