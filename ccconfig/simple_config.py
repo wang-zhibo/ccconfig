@@ -6,8 +6,6 @@
 # Date  :
 # Desc  :
 
-
-
 import os
 import json
 from configparser import ConfigParser
@@ -19,10 +17,18 @@ except ImportError:
 
 
 class Config:
-    def __init__(self):
-        self._config_data = {}
-        self._config_files = []
-        self._type_converters = {
+    def __init__(self) -> None:
+        """Initialize a new Config instance.
+        
+        Attributes:
+            _config_data (Dict[str, Any]): Stores the merged configuration data
+            _config_files (List[Tuple[str, int]]): List of loaded config files with their priorities
+            _type_converters (Dict[str, Callable]): Built-in type converters
+            _change_listeners (Dict[str, Callable]): Registered change listeners
+        """
+        self._config_data: Dict[str, Any] = {}
+        self._config_files: List[Tuple[str, int]] = []
+        self._type_converters: Dict[str, Callable] = {
             'int': int,
             'float': float,
             'bool': self._convert_bool,
@@ -30,9 +36,51 @@ class Config:
             'list': self._convert_list,
             'dict': self._convert_dict
         }
+        self._change_listeners: Dict[str, Callable] = {}
+
+    def add_change_listener(self, name: str, callback: Callable[[Dict[str, Any], Dict[str, Any]], None]) -> None:
+        """Add a change listener that will be called when configuration changes.
+        
+        Args:
+            name: Unique identifier for the listener
+            callback: Function that takes (old_config, new_config) as arguments
+        """
+        self._change_listeners[name] = callback
+
+    def remove_change_listener(self, name: str) -> None:
+        """Remove a previously registered change listener.
+        
+        Args:
+            name: Unique identifier of the listener to remove
+        """
+        self._change_listeners.pop(name, None)
+
+    def _notify_change_listeners(self, old_config: Dict[str, Any], new_config: Dict[str, Any]) -> None:
+        """Notify all registered listeners about configuration changes.
+        
+        Args:
+            old_config: Configuration before changes
+            new_config: Configuration after changes
+        """
+        for listener in self._change_listeners.values():
+            try:
+                listener(old_config, new_config)
+            except Exception as e:
+                # Prevent one failing listener from breaking others
+                print(f"Error in config change listener: {e}")
 
     def load(self, filepath: str, priority: int = 0) -> None:
-        """加载配置文件，支持 .ini/.cfg, .json, .yaml/.yml 格式"""
+        """Load configuration from file.
+        
+        Args:
+            filepath: Path to configuration file. Supported formats: .ini/.cfg, .json, .yaml/.yml
+            priority: Priority level for this configuration (higher values take precedence)
+            
+        Raises:
+            FileNotFoundError: If the specified file does not exist
+            ValueError: If the file format is not supported
+            ImportError: If YAML file is provided but PyYAML is not installed
+        """
         if not os.path.isfile(filepath):
             raise FileNotFoundError(f"Config file not found: {filepath}")
 
@@ -43,7 +91,11 @@ class Config:
         for f, _ in self._config_files:
             loaded_data = self._load_file(f)
             new_data = self._merge_dict(new_data, loaded_data)
+        
+        # Notify listeners of changes
+        old_data = self._config_data
         self._config_data = new_data
+        self._notify_change_listeners(old_data, new_data)
 
     def load_env(self, prefix: str = "") -> None:
         """从环境变量加载配置"""
@@ -204,4 +256,3 @@ class Config:
             except json.JSONDecodeError:
                 return {k.strip(): v.strip() for k, v in (item.split('=') for item in val.split(','))}
         return dict(val)
-
