@@ -8,9 +8,9 @@
 
 
 
-from .simple_config import Config
+from .simple_config import Config, ConfigItem
 
-__all__ = ["Config"]
+__all__ = ["Config", "ConfigItem"]
 
 
 
