@@ -8,8 +8,23 @@
 
 import os
 import json
+import time
 from configparser import ConfigParser
-from typing import Any, Dict, Optional, Union, Callable
+from typing import Any, Dict, Optional, Union, Callable, List, Tuple, Set
+from dataclasses import dataclass
+
+@dataclass
+class ConfigItem:
+    """配置项元数据"""
+    key: str
+    description: str = ""
+    default: Any = None
+    required: bool = False
+    type: Optional[Union[type, str, Callable]] = None
+    choices: Optional[Set[Any]] = None
+    min_value: Optional[Union[int, float]] = None
+    max_value: Optional[Union[int, float]] = None
+
 try:
     import yaml
 except ImportError:
@@ -17,17 +32,29 @@ except ImportError:
 
 
 class Config:
-    def __init__(self) -> None:
+    def __init__(self, auto_reload: bool = False, reload_interval: int = 5) -> None:
         """Initialize a new Config instance.
         
+        Args:
+            auto_reload: 是否启用自动重载
+            reload_interval: 自动重载间隔时间(秒)
+            
         Attributes:
             _config_data (Dict[str, Any]): Stores the merged configuration data
             _config_files (List[Tuple[str, int]]): List of loaded config files with their priorities
             _type_converters (Dict[str, Callable]): Built-in type converters
             _change_listeners (Dict[str, Callable]): Registered change listeners
+            _config_metadata (Dict[str, ConfigItem]): 配置项元数据
+            _auto_reload (bool): 是否启用自动重载
+            _reload_interval (int): 自动重载间隔时间
+            _last_reload_time (float): 上次重载时间
         """
         self._config_data: Dict[str, Any] = {}
         self._config_files: List[Tuple[str, int]] = []
+        self._config_metadata: Dict[str, ConfigItem] = {}
+        self._auto_reload = auto_reload
+        self._reload_interval = reload_interval
+        self._last_reload_time = 0.0
         self._type_converters: Dict[str, Callable] = {
             'int': int,
             'float': float,
@@ -37,6 +64,28 @@ class Config:
             'dict': self._convert_dict
         }
         self._change_listeners: Dict[str, Callable] = {}
+        
+        if auto_reload:
+            self._start_auto_reload()
+
+    def _start_auto_reload(self) -> None:
+        """启动自动重载线程"""
+        import threading
+        def reload_worker():
+            while True:
+                time.sleep(self._reload_interval)
+                if self._should_reload():
+                    self.reload()
+                    
+        thread = threading.Thread(target=reload_worker, daemon=True)
+        thread.start()
+
+    def _should_reload(self) -> bool:
+        """判断是否需要重载"""
+        for filepath, _ in self._config_files:
+            if os.path.getmtime(filepath) > self._last_reload_time:
+                return True
+        return False
 
     def add_change_listener(self, name: str, callback: Callable[[Dict[str, Any], Dict[str, Any]], None]) -> None:
         """Add a change listener that will be called when configuration changes.
@@ -68,6 +117,21 @@ class Config:
             except Exception as e:
                 # Prevent one failing listener from breaking others
                 print(f"Error in config change listener: {e}")
+
+    def add_config_item(self, item: ConfigItem) -> None:
+        """添加配置项元数据"""
+        self._config_metadata[item.key] = item
+        if item.default is not None:
+            self._set(item.key, item.default)
+
+    def get_config_metadata(self, key: str) -> Optional[ConfigItem]:
+        """获取配置项元数据"""
+        return self._config_metadata.get(key)
+
+    def get_description(self, key: str) -> Optional[str]:
+        """获取配置项描述"""
+        item = self.get_config_metadata(key)
+        return item.description if item else None
 
     def load(self, filepath: str, priority: int = 0) -> None:
         """Load configuration from file.
@@ -156,6 +220,25 @@ class Config:
     def add_type_converter(self, name: str, converter: Callable) -> None:
         """添加自定义类型转换器"""
         self._type_converters[name] = converter
+
+    def watch(self, key: str, callback: Callable[[Any, Any], None]) -> None:
+        """监听配置项变化"""
+        def listener(old_config: Dict[str, Any], new_config: Dict[str, Any]) -> None:
+            old_val = self._get_nested(old_config, key)
+            new_val = self._get_nested(new_config, key)
+            if old_val != new_val:
+                callback(old_val, new_val)
+        self.add_change_listener(f"watch_{key}", listener)
+
+    def _get_nested(self, config: Dict[str, Any], key: str) -> Any:
+        """获取嵌套配置值"""
+        keys = key.split('.')
+        cur = config
+        for k in keys:
+            if k not in cur:
+                return None
+            cur = cur[k]
+        return cur
 
     def to_dict(self) -> Dict[str, Any]:
         """返回当前配置的完整字典"""
