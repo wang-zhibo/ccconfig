@@ -10,11 +10,12 @@ from ccconfig import Config, ConfigItem
 import os 
 import json
 import time
+import logging
 
 
 def main():
-    # 初始化配置管理器，启用自动重载
-    cfg = Config(auto_reload=True, reload_interval=5)
+    # 初始化配置管理器，启用自动重载和日志记录
+    cfg = Config(auto_reload=True, reload_interval=5, enable_logging=True, log_level=logging.INFO)
 
     # 1. 定义配置项元数据
     cfg.add_config_item(ConfigItem(
@@ -125,7 +126,28 @@ def main():
     print("\nFull Configuration:")
     print(json.dumps(full_config, indent=2))
 
-    # 10. 保持程序运行以观察自动重载
+    # 10. 使用新增的验证功能
+    print("\n验证所有配置项:")
+    errors = cfg.validate_all()
+    if errors:
+        print("配置验证失败:")
+        for key, error in errors.items():
+            print(f"  {key}: {error}")
+    else:
+        print("所有配置项验证通过")
+
+    # 11. 保存配置到文件
+    print("\n保存配置到文件:")
+    cfg.save("output_config.json")
+    print("  已保存为 JSON 格式: output_config.json")
+    
+    cfg.save("output_config.yaml", format_type="yaml")
+    print("  已保存为 YAML 格式: output_config.yaml")
+    
+    cfg.save("output_config.ini", format_type="ini")
+    print("  已保存为 INI 格式: output_config.ini")
+
+    # 12. 保持程序运行以观察自动重载
     print("\nWaiting for config changes... (Ctrl+C to exit)")
     try:
         while True:
